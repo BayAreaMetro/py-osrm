@@ -4,6 +4,8 @@ __pycache__
 
 # test files
 /tests/data/ch
-/tests/data/corech
 /tests/data/mld
 /tests/data/monaco.osrm*
+
+# compiled extensions
+*.so
