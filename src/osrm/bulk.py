@@ -1,14 +1,94 @@
 """Bulk processing functions for py-osrm using concurrent execution."""
 
+import asyncio
 import math
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional, TypeVar, Union, overload
+from typing import Any, Callable, Dict, List, Optional, TypeVar, Union, overload
+
+import aiohttp
 
 from ._params import RouteParameters as _RouteParameters, set_param as _set_param
 
+# Default concurrent HTTP requests — high enough for throughput,
+# low enough to avoid overwhelming a remote server
+_DEFAULT_HTTP_WORKERS = 16
+
 # TypeVar for DataFrame type (Polars DataFrame)
 DataFrameT = TypeVar('DataFrameT')
+
+
+def _bulk_route_http(
+    osrm_instance,
+    rows: List[Dict],
+    build_params_fn: Callable,
+    concurrency: int,
+    fail_fast: bool,
+    show_progress: bool = True,
+) -> List[Optional[Dict]]:
+    """Async HTTP routing with aiohttp and semaphore-based concurrency control."""
+
+    async def _run():
+        sem = asyncio.Semaphore(concurrency)
+        connector = aiohttp.TCPConnector(limit=concurrency, keepalive_timeout=30)
+
+        async def _fetch_one(session: aiohttp.ClientSession, idx: int, row: Dict) -> tuple:
+            kw = build_params_fn(row)
+            coordinates = kw.pop('coordinates')
+            request_data = osrm_instance._build_request('route', coordinates, kw)
+
+            async with sem:
+                try:
+                    async with session.get(
+                        request_data['url'],
+                        params=request_data['params'],
+                        timeout=aiohttp.ClientTimeout(total=osrm_instance.timeout),
+                    ) as resp:
+                        if resp.status == 200:
+                            return idx, await resp.json()
+                        return idx, None
+                except Exception:
+                    if fail_fast:
+                        raise
+                    return idx, None
+
+        # Set up optional progress bar
+        pbar = None
+        if show_progress:
+            try:
+                from tqdm import tqdm
+                pbar = tqdm(total=len(rows), desc="Routing (HTTP)", unit="req")
+            except ImportError:
+                pass
+
+        results = [None] * len(rows)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            tasks = [asyncio.ensure_future(_fetch_one(session, i, row))
+                     for i, row in enumerate(rows)]
+            for coro in asyncio.as_completed(tasks):
+                idx, result = await coro
+                results[idx] = result
+                if pbar:
+                    pbar.update(1)
+
+        if pbar:
+            pbar.close()
+        return results
+
+    # Run the event loop — handle case where one is already running (e.g. Jupyter)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        # Already in an async context (Jupyter, etc.) — use thread to run new loop
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(1) as pool:
+            future = pool.submit(asyncio.run, _run())
+            return future.result()
+    else:
+        return asyncio.run(_run())
+
 
 
 @overload
@@ -54,7 +134,9 @@ def bulk_route(
             Optional per-row params: steps, alternatives, annotations, geometries, 
                                      overview, radiuses, bearings, exclude
             For multi-waypoint routes: waypoints (list of (lon, lat) tuples)
-        max_workers: Number of parallel workers (default: os.cpu_count())
+        max_workers: Number of parallel workers. For native OSRM, this is ignored
+            (TBB handles threading). For HTTP clients, defaults to 8 to avoid
+            overwhelming the remote server. Override with caution.
         fail_fast: If True, raise on first error; if False, collect all results
         timeout: Timeout in seconds for individual route requests
         show_progress: If True (default), display progress bar with processing rate and error count
@@ -170,14 +252,23 @@ def bulk_route(
             _set_param(rp, key, value)
         params_list.append(rp)
 
-    # Dispatch all routes via native C++ TBB parallelism (single GIL release)
-    try:
-        batch_results = osrm_instance._engine.BatchRoute(params_list)
-    except Exception as e:
-        if fail_fast:
-            raise
-        # Total failure — mark all rows as errors
-        batch_results = [None] * len(rows)
+    # Detect whether this is a native C++ engine (has BatchRoute) or HTTP client
+    _has_batch = hasattr(osrm_instance, '_engine') and hasattr(osrm_instance._engine, 'BatchRoute')
+
+    if _has_batch:
+        # Native C++ path — TBB parallel via single GIL release
+        try:
+            batch_results = osrm_instance._engine.BatchRoute(params_list)
+        except Exception as e:
+            if fail_fast:
+                raise
+            batch_results = [None] * len(rows)
+    else:
+        # HTTP/fallback path — use async I/O for maximum throughput
+        concurrency = max_workers or _DEFAULT_HTTP_WORKERS
+
+        batch_results = _bulk_route_http(osrm_instance, rows, build_params_for_row,
+                                         concurrency, fail_fast, show_progress)
 
     # Unpack results into row dicts
     results: List[Dict[str, Any]] = [None] * len(rows)  # type: ignore
@@ -185,7 +276,7 @@ def bulk_route(
         result = row.copy()
         try:
             if raw is not None:
-                response = raw.to_dict()
+                response = raw.to_dict() if hasattr(raw, 'to_dict') else raw
                 if response and 'routes' in response and len(response['routes']) > 0:
                     route = response['routes'][0]
                     result['distance'] = route.get('distance')
