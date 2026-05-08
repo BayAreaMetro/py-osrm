@@ -87,3 +87,9 @@ VCPKG_DEFAULT_TRIPLET = "x64-windows"
 dev = [
     "pytest>=8.3.5",
 ]
+docs = [
+    "mkdocs-material>=9.1",
+    "mkdocstrings[python]>=0.22",
+    "pymdown-extensions>=10",
+    "mkdocs-include-markdown-plugin>=7",
+]

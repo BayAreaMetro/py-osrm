@@ -1,29 +1,54 @@
-site_name: py_osrm
+site_name: py-osrm
+site_url: https://bayareametro.github.io/py-osrm/
+repo_url: https://github.com/BayAreaMetro/py-osrm
+repo_name: BayAreaMetro/py-osrm
+edit_uri: edit/main/docs/docs/
 
 theme:
   name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
 
 plugins:
   - search
+  - include-markdown
   - mkdocstrings:
       handlers:
         python:
-          options: 
+          options:
             docstring_style: google
             merge_init_into_class: true
             show_root_full_path: false
+            show_source: true
             docstring_options:
               ignore_init_summary: true
 
 nav:
-  - Index: index.md
-  - OSRM:
-    - pages/osrm.md
-    - pages/match.md
-    - pages/nearest.md
-    - pages/route.md
-    - pages/table.md
-    - pages/tile.md
-    - pages/trip.md
-  - Other:
-    - pages/base.md
+  - Home: index.md
+  - Getting Started: getting_started.md
+  - API Reference:
+    - OSRM: pages/osrm.md
+    - Route: pages/route.md
+    - Table: pages/table.md
+    - Nearest: pages/nearest.md
+    - Match: pages/match.md
+    - Trip: pages/trip.md
+    - Tile: pages/tile.md
+    - Bulk Processing: pages/bulk.md
+    - HTTP Client: pages/http_client.md
+    - Preprocessing: pages/preprocessing.md
+    - Base Parameters: pages/base.md
+  - Changelog: changelog.md
