@@ -10,29 +10,71 @@ on:
       - '.github/workflows/gh-pages.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
-  build-deploy:
-    name: Build and deploy docs
+  build:
+    name: Build Documentation
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Project
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
         uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-      - name: Install osrm-backend dependencies
+      - name: Install py-osrm from latest GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libtbb-dev liblua5.4-dev libbz2-dev libexpat1-dev libboost-all-dev
+          WHEEL_URL=$(gh release view --repo BayAreaMetro/py-osrm --json assets \
+            --jq '.assets[] | select(.name | test("cp3.*abi3.*linux_x86_64.*\\.whl")) | .url' \
+            | head -1)
+          if [ -z "$WHEEL_URL" ]; then
+            echo "No release wheel found for BayAreaMetro/py-osrm, falling back to nick-fournier/py-osrm"
+            WHEEL_URL=$(gh release view --repo nick-fournier/py-osrm --json assets \
+              --jq '.assets[] | select(.name | test("cp3.*abi3.*linux_x86_64.*\\.whl")) | .url' \
+              | head -1)
+          fi
+          uv pip install --system "$WHEEL_URL"
 
-      - name: Install py-osrm-revival and doc dependencies
-        run: |
-          pip install .
-          pip install -r docs/requirements.txt
+      - name: Install documentation dependencies
+        run: uv sync --group docs
 
-      - name: Build and deploy to GitHub Pages
+      - name: Build documentation
         working-directory: docs
-        run: |
-          mkdocs gh-deploy --force
+        run: uv run mkdocs build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./docs/site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

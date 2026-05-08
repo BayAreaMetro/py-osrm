@@ -1,11 +1,11 @@
-# py-osrm-revival
+# py-osrm
 
-[![Build Wheels](https://github.com/nick-fournier/py-osrm/actions/workflows/build_wheels.yml/badge.svg)](https://github.com/nick-fournier/py-osrm/actions/workflows/build_wheels.yml)
-[![PyPI](https://img.shields.io/pypi/v/py-osrm-revival)](https://pypi.org/project/py-osrm-revival/)
+[![Build Wheels](https://github.com/BayAreaMetro/py-osrm/actions/workflows/build_wheels.yml/badge.svg)](https://github.com/BayAreaMetro/py-osrm/actions/workflows/build_wheels.yml)
+[![Docs](https://github.com/BayAreaMetro/py-osrm/actions/workflows/gh-pages.yml/badge.svg)](https://bayareametro.github.io/py-osrm/)
 
-**py-osrm-revival is an actively maintained continuation of [py-osrm](https://github.com/gis-ops/py-osrm), providing Python bindings to [osrm-backend](https://github.com/Project-OSRM/osrm-backend) using [nanobind](https://github.com/wjakob/nanobind).**
+**py-osrm provides Python bindings to [osrm-backend](https://github.com/Project-OSRM/osrm-backend) using [nanobind](https://github.com/wjakob/nanobind).**
 
-> This project was forked from [gis-ops/py-osrm](https://github.com/gis-ops/py-osrm) which is now archived and unmaintained. Development continues here.
+> This project is a fork of [nick-fournier/py-osrm](https://github.com/nick-fournier/py-osrm), itself a continuation of the archived [gis-ops/py-osrm](https://github.com/gis-ops/py-osrm).
 
 This package binds to **OSRM v6.0.0** backend and includes preprocessing functionality.
 
@@ -20,34 +20,35 @@ Windows | x86_64
 ---
 
 ## Installation
-py-osrm-revival is supported on **CPython 3.9+**.
+py-osrm is supported on **CPython 3.9+**.
 
-**Install from PyPI:**
+> [!WARNING]
+> **py-osrm wraps a C++ library and must be compiled from source if not using a pre-built wheel.**
+> Running `uv sync`, `pip install .`, or `pip install git+...` requires a full C++ toolchain
+> (compiler, CMake, Boost, libtbb, Lua) and takes **5–10 minutes**. Toolchain mismatches are
+> common and will cause hard-to-diagnose build failures. **Use the pre-built wheels below.**
+
+**Install from GitHub Releases (recommended — no compilation required):**
+
 ```bash
-pip install py-osrm-revival
+# Linux
+pip install https://github.com/BayAreaMetro/py-osrm/releases/latest/download/py_osrm-cp39-abi3-linux_x86_64.whl
+
+# macOS
+pip install https://github.com/BayAreaMetro/py-osrm/releases/latest/download/py_osrm-cp39-abi3-macosx_15_0_x86_64.whl
+
+# Windows
+pip install https://github.com/BayAreaMetro/py-osrm/releases/latest/download/py_osrm-cp39-abi3-win_amd64.whl
 ```
 
-**Or install from GitHub Releases:**
+Or browse all wheels on the [Releases page](https://github.com/BayAreaMetro/py-osrm/releases).
 
-Download the appropriate wheel for your platform from [Releases](https://github.com/nick-fournier/py-osrm/releases):
+**From source (requires C++ compiler, CMake, ~5-10 min):**
 ```bash
-pip install https://github.com/nick-fournier/py-osrm/releases/download/v0.1.0/py_osrm_revival-0.1.0-cp39-abi3-linux_x86_64.whl
-```
-
-**Development install (requires compilation, ~5-10 min):**
-```bash
-pip install git+https://github.com/nick-fournier/py-osrm.git@revival
-```
-
-**From source:**
-```bash
-git clone https://github.com/nick-fournier/py-osrm.git
+git clone https://github.com/BayAreaMetro/py-osrm.git
 cd py-osrm
-git checkout revival
 pip install .
 ```
-
-> **Note:** Development and source installations require a C++ compiler (GCC/Clang) and CMake.
 
 ## Quick Start
 
@@ -93,7 +94,7 @@ result = py_osrm.Nearest(
 )
 ```
 
-See the [documentation](https://nick-fournier.github.io/py-osrm/) for Trip, Match, and Tile services.
+See the [documentation](https://bayareametro.github.io/py-osrm/) for Trip, Match, and Tile services.
 
 ### Bulk Processing (Concurrent)
 
@@ -121,10 +122,10 @@ results = osrm.bulk_route(py_osrm, df, steps=True, geometries="geojson")
 print(results.select(["distance", "duration", "success"]))
 ```
 
-**Installation with bulk processing support:**
+**Optional dependencies for bulk processing:**
 ```bash
-pip install py-osrm-revival[bulk]           # Polars only
-pip install py-osrm-revival[bulk-progress]  # Polars + tqdm progress bar
+pip install polars          # DataFrame support
+pip install polars tqdm     # DataFrame support + progress bar
 ```
 
 **Key features:**
@@ -164,7 +165,7 @@ python -m osrm extract data.osm.pbf --profile car
 python -m osrm contract data
 ```
 
-For **MLD (Multi-Level Dijkstra)** on larger datasets, see [preprocessing documentation](https://nick-fournier.github.io/py-osrm/).
+For **MLD (Multi-Level Dijkstra)** on larger datasets, see [preprocessing documentation](https://bayareametro.github.io/py-osrm/pages/preprocessing/).
 
 ## Advanced Usage
 
@@ -191,8 +192,26 @@ This pattern is useful when constructing parameters programmatically or reusing 
 
 ---
 
+## HTTP Client
+
+Route against a remote `osrm-routed` server — same API as the native `OSRM` class:
+
+```python
+import osrm
+
+client = osrm.OSRM_HTTP("http://localhost:5000")
+result = client.Route([(7.41337, 43.72956), (7.41546, 43.73077)])
+print(result["routes"][0]["distance"])
+
+# Works identically with bulk_route
+results = osrm.bulk_route(client, df)
+```
+
+---
+
 ## Documentation
-[Documentation Page](https://nick-fournier.github.io/py-osrm/)
+
+[https://bayareametro.github.io/py-osrm/](https://bayareametro.github.io/py-osrm/)
 
 ## Acknowledgments
-This project is a continuation of [gis-ops/py-osrm](https://github.com/gis-ops/py-osrm). Thanks to the original authors for their foundational work.
+This project is a fork of [nick-fournier/py-osrm](https://github.com/nick-fournier/py-osrm), which continues the original work from the archived [gis-ops/py-osrm](https://github.com/gis-ops/py-osrm). Thanks to all prior authors for their foundational contributions.

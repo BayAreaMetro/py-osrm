@@ -2,6 +2,9 @@
 build
 __pycache__
 
+# mkdocs build output
+docs/site/
+
 # test files
 /tests/data/ch
 /tests/data/mld
