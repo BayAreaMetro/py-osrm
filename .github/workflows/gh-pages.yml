@@ -43,15 +43,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          PY_TAG="cp$(python -c 'import sys; print(f"{sys.version_info.major}{sys.version_info.minor}")')"
+          JQ_FILTER=".assets[] | select(.name | test(\"${PY_TAG}.*manylinux.*x86_64.*\\\\.whl\")) | .browser_download_url"
+
           WHEEL_URL=$(gh release view --repo BayAreaMetro/py-osrm --json assets \
-            --jq '.assets[] | select(.name | test("cp3.*abi3.*linux_x86_64.*\\.whl")) | .url' \
-            | head -1)
+            --jq "$JQ_FILTER" 2>/dev/null | head -1)
+
           if [ -z "$WHEEL_URL" ]; then
             echo "No release wheel found for BayAreaMetro/py-osrm, falling back to nick-fournier/py-osrm"
             WHEEL_URL=$(gh release view --repo nick-fournier/py-osrm --json assets \
-              --jq '.assets[] | select(.name | test("cp3.*abi3.*linux_x86_64.*\\.whl")) | .url' \
-              | head -1)
+              --jq "$JQ_FILTER" 2>/dev/null | head -1)
           fi
+
+          if [ -z "$WHEEL_URL" ]; then
+            echo "ERROR: Could not find a manylinux wheel for ${PY_TAG} in any release." >&2
+            exit 1
+          fi
+
+          echo "Installing: $WHEEL_URL"
           uv pip install --system "$WHEEL_URL"
 
       - name: Install documentation dependencies
