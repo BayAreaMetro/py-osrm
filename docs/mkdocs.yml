@@ -35,6 +35,7 @@ plugins:
             show_source: true
             docstring_options:
               ignore_init_summary: true
+              warn_unknown_params: false
 
 nav:
   - Home: index.md

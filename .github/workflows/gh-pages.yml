@@ -39,15 +39,15 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install documentation dependencies
+        run: uv sync --group docs --no-install-project
+
       - name: Install py-osrm from latest GitHub Release
         run: |
           PY_TAG="cp$(python -c 'import sys; print(f"{sys.version_info.major}{sys.version_info.minor}")')"
           WHEEL_URL="https://github.com/BayAreaMetro/py-osrm/releases/download/v0.1.0/py_osrm_revival-0.1.0-${PY_TAG}-${PY_TAG}-manylinux_2_28_x86_64.whl"
           echo "Installing: $WHEEL_URL"
-          uv pip install --system "$WHEEL_URL"
-
-      - name: Install documentation dependencies
-        run: uv sync --group docs --no-install-project
+          uv pip install "$WHEEL_URL"
 
       - name: Build documentation
         working-directory: docs
