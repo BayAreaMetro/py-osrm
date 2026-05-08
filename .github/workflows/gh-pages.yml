@@ -40,35 +40,18 @@ jobs:
           python-version: "3.12"
 
       - name: Install py-osrm from latest GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           PY_TAG="cp$(python -c 'import sys; print(f"{sys.version_info.major}{sys.version_info.minor}")')"
-          JQ_FILTER=".assets[] | select(.name | test(\"${PY_TAG}.*manylinux.*x86_64.*\\\\.whl\")) | .browser_download_url"
-
-          WHEEL_URL=$(gh release view --repo BayAreaMetro/py-osrm --json assets \
-            --jq "$JQ_FILTER" 2>/dev/null | head -1)
-
-          if [ -z "$WHEEL_URL" ]; then
-            echo "No release wheel found for BayAreaMetro/py-osrm, falling back to nick-fournier/py-osrm"
-            WHEEL_URL=$(gh release view --repo nick-fournier/py-osrm --json assets \
-              --jq "$JQ_FILTER" 2>/dev/null | head -1)
-          fi
-
-          if [ -z "$WHEEL_URL" ]; then
-            echo "ERROR: Could not find a manylinux wheel for ${PY_TAG} in any release." >&2
-            exit 1
-          fi
-
+          WHEEL_URL="https://github.com/BayAreaMetro/py-osrm/releases/download/v0.1.0/py_osrm_revival-0.1.0-${PY_TAG}-${PY_TAG}-manylinux_2_28_x86_64.whl"
           echo "Installing: $WHEEL_URL"
           uv pip install --system "$WHEEL_URL"
 
       - name: Install documentation dependencies
-        run: uv sync --group docs
+        run: uv sync --group docs --no-install-project
 
       - name: Build documentation
         working-directory: docs
-        run: uv run mkdocs build
+        run: uv run --no-project mkdocs build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
