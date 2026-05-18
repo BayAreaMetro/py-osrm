@@ -72,11 +72,10 @@ class OSRM_HTTP:
             self.session.mount('http://', adapter)
             self.session.mount('https://', adapter)
         
-        # Verify server is accessible
+        # Verify server is accessible (OSRM returns 400/404 for root, that's fine)
         try:
-            response = self.session.get(f"{self.base_url}/", timeout=5)
-            response.raise_for_status()
-        except Exception as e:
+            self.session.get(f"{self.base_url}/", timeout=5)
+        except self._requests.exceptions.ConnectionError as e:
             raise ConnectionError(
                 f"Failed to connect to OSRM server at {self.base_url}: {e}"
             )
