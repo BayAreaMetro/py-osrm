@@ -1,135 +1,113 @@
 #!/usr/bin/env python3
 """
-Auto-installer for py-osrm from GitHub Releases
-Detects platform and Python version, then installs appropriate wheel
-Falls back to git installation if no matching wheel is found
+Install py-osrm from GitHub Releases.
+Detects platform/Python version and installs the matching wheel.
+Falls back to source installation if no wheel is available.
 """
 
-import sys
+import json
 import platform
 import subprocess
-import json
-from urllib.request import urlopen, Request
+import sys
 from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
-REPO_OWNER = "nick-fournier"
+REPO_OWNER = "BayAreaMetro"
 REPO_NAME = "py-osrm"
-BRANCH = "revival"
+BRANCH = "main"
+GITHUB_API = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
 
-def get_platform_tag():
-    """Detect platform and architecture tag for wheel filename"""
+
+def get_wheel_tags():
+    """Return (python_tag, platform_keywords) for the current environment.
+    
+    Platform keywords are substrings that must ALL appear in the wheel filename.
+    This handles version differences in manylinux/macosx tags (e.g. manylinux_2_28
+    vs manylinux_2_17, macosx_15_0 vs macosx_11_0).
+    """
+    cp = f"cp{sys.version_info.major}{sys.version_info.minor}"
+    python_tag = f"{cp}-{cp}"
+
     system = platform.system().lower()
     machine = platform.machine().lower()
-    
-    # Map to wheel platform tags
-    if system == "linux":
-        if machine in ["x86_64", "amd64"]:
-            return "linux_x86_64"
-        elif machine in ["aarch64", "arm64"]:
-            return "linux_aarch64"
-    elif system == "darwin":
-        if machine in ["x86_64", "amd64"]:
-            return "macosx_10_9_x86_64"
-        elif machine in ["arm64"]:
-            return "macosx_11_0_arm64"
-    elif system == "windows":
-        if machine in ["x86_64", "amd64"]:
-            return "win_amd64"
-    
-    return None
 
-def get_python_tag():
-    """Get Python version tag for wheel filename"""
-    version_info = sys.version_info
-    # py-osrm uses abi3 for stable ABI (Python 3.9+)
-    if version_info >= (3, 9):
-        return "cp39-abi3"
-    return None
+    # Each entry is a list of substrings that must all be present in the filename
+    platform_map = {
+        ("linux", "x86_64"): ["linux", "x86_64"],
+        ("linux", "amd64"): ["linux", "x86_64"],
+        ("linux", "aarch64"): ["linux", "aarch64"],
+        ("linux", "arm64"): ["linux", "aarch64"],
+        ("darwin", "x86_64"): ["macosx", "x86_64"],
+        ("darwin", "amd64"): ["macosx", "x86_64"],
+        ("darwin", "arm64"): ["macosx", "arm64"],
+        ("windows", "x86_64"): ["win_amd64"],
+        ("windows", "amd64"): ["win_amd64"],
+    }
+    platform_keywords = platform_map.get((system, machine))
+    return python_tag, platform_keywords
 
-def get_latest_release():
-    """Fetch latest release info from GitHub API"""
-    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
+
+def find_wheel_url():
+    """Fetch latest GitHub release and return URL of matching wheel, or None."""
     try:
-        req = Request(url, headers={"Accept": "application/vnd.github.v3+json"})
-        with urlopen(req, timeout=10) as response:
-            return json.loads(response.read())
+        req = Request(GITHUB_API, headers={"Accept": "application/vnd.github.v3+json"})
+        with urlopen(req, timeout=10) as resp:
+            release = json.loads(resp.read())
     except (HTTPError, URLError) as e:
-        print(f"⚠️  Could not fetch releases from GitHub: {e}")
+        print(f"Could not fetch releases: {e}")
         return None
 
-def find_matching_wheel(release_data):
-    """Find wheel matching current platform and Python version"""
-    if not release_data or "assets" not in release_data:
+    python_tag, platform_keywords = get_wheel_tags()
+    if not platform_keywords:
+        print(f"Unsupported platform: {platform.system()} {platform.machine()}")
         return None
-    
-    platform_tag = get_platform_tag()
-    python_tag = get_python_tag()
-    
-    if not platform_tag or not python_tag:
-        print(f"⚠️  Platform not detected or Python version < 3.9")
-        return None
-    
-    # Look for matching wheel
-    for asset in release_data["assets"]:
+
+    print(f"Latest release: {release.get('tag_name', 'unknown')}")
+    print(f"Looking for wheel matching: {python_tag} / {platform_keywords}")
+
+    for asset in release.get("assets", []):
         name = asset["name"]
-        if name.endswith(".whl") and python_tag in name and platform_tag in name:
+        if not name.endswith(".whl"):
+            continue
+        if python_tag not in name:
+            continue
+        if all(kw in name for kw in platform_keywords):
             return asset["browser_download_url"]
-    
+
     return None
 
-def install_wheel(wheel_url):
-    """Install wheel using pip"""
-    print(f"📦 Installing from wheel: {wheel_url}")
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", wheel_url])
-        print("✅ Installation successful!")
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Installation failed: {e}")
-        return False
 
-def install_from_git():
-    """Fallback: Install from git (requires compilation)"""
-    git_url = f"git+https://github.com/{REPO_OWNER}/{REPO_NAME}.git@{BRANCH}"
-    print(f"\n⚠️  No pre-built wheel found for your platform.")
-    print(f"📦 Falling back to git installation (this will compile from source)")
-    print(f"⏱️  This may take 5-10 minutes and requires C++ compiler and CMake...")
-    print(f"\nInstalling from: {git_url}\n")
-    
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", git_url])
-        print("\n✅ Installation successful!")
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"\n❌ Installation failed: {e}")
-        print("\nPlease ensure you have:")
-        print("  - C++ compiler (gcc/g++ on Linux, Xcode tools on macOS, MSVC on Windows)")
-        print("  - CMake (install via: pip install cmake)")
-        return False
+def pip_install(target):
+    """Run uv pip install on a URL or package spec. Returns True on success."""
+    cmd = ["uv", "pip", "install", target]
+    print(f"Running: {' '.join(cmd)}")
+    return subprocess.call(cmd) == 0
+
 
 def main():
-    print(f"🔍 Detecting platform: {platform.system()} {platform.machine()}")
-    print(f"🐍 Python version: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
-    
-    # Try to get latest release
-    print(f"\n🔄 Fetching latest release from GitHub...")
-    release_data = get_latest_release()
-    
-    if release_data:
-        version = release_data.get("tag_name", "unknown")
-        print(f"📌 Latest release: {version}")
-        
-        # Try to find matching wheel
-        wheel_url = find_matching_wheel(release_data)
-        if wheel_url:
-            if install_wheel(wheel_url):
-                return 0
-    
-    # Fallback to git installation
-    if install_from_git():
+    print(f"Platform: {platform.system()} {platform.machine()}")
+    print(f"Python:   {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}\n")
+
+    # Try pre-built wheel from GitHub Releases
+    wheel_url = find_wheel_url()
+    if wheel_url:
+        print(f"\nInstalling wheel: {wheel_url}")
+        if pip_install(wheel_url):
+            print("\nInstallation successful.")
+            return 0
+        print("\nWheel installation failed.")
+
+    # Fall back to source install
+    git_url = f"git+https://github.com/{REPO_OWNER}/{REPO_NAME}.git@{BRANCH}"
+    print(f"\nNo pre-built wheel found. Installing from source (requires C++ toolchain).")
+    print(f"Source: {git_url}\n")
+    if pip_install(git_url):
+        print("\nInstallation successful.")
         return 0
-    
+
+    print("\nInstallation failed. Ensure you have a C++ compiler and CMake installed.")
     return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())
