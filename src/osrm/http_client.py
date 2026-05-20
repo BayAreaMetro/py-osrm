@@ -84,6 +84,26 @@ class OSRM_HTTP:
         """Format coordinates as lon,lat;lon,lat string."""
         return ';'.join([f"{lon},{lat}" for lon, lat in coordinates])
     
+    @staticmethod
+    def _encode_polyline(coordinates: List[tuple], precision: int = 5) -> str:
+        """Encode coordinates as a polyline string (OSRM expects lat,lon order)."""
+        factor = 10 ** precision
+        output = []
+        prev_lat, prev_lon = 0, 0
+        for lon, lat in coordinates:
+            lat_int = round(lat * factor)
+            lon_int = round(lon * factor)
+            d_lat = lat_int - prev_lat
+            d_lon = lon_int - prev_lon
+            prev_lat, prev_lon = lat_int, lon_int
+            for v in (d_lat, d_lon):
+                v = ~(v << 1) if v < 0 else (v << 1)
+                while v >= 0x20:
+                    output.append(chr((0x20 | (v & 0x1F)) + 63))
+                    v >>= 5
+                output.append(chr(v + 63))
+        return ''.join(output)
+
     def _format_bool_param(self, value: bool) -> str:
         """Format boolean as 'true' or 'false' string."""
         return 'true' if value else 'false'
@@ -97,6 +117,10 @@ class OSRM_HTTP:
         """Build HTTP request parameters."""
         coords_str = self._format_coordinates(coordinates)
         url = f"{self.base_url}/{service}/v1/{self.profile}/{coords_str}"
+        # If URL is too long, switch to polyline encoding (~50% shorter)
+        if len(url) > 4000:
+            polyline_str = self._encode_polyline(coordinates)
+            url = f"{self.base_url}/{service}/v1/{self.profile}/polyline({polyline_str})"
         
         # Convert parameters to query string format
         query_params = {}
@@ -138,11 +162,16 @@ class OSRM_HTTP:
         request_data = self._build_request(service, coordinates, kwargs)
         
         try:
-            response = self.session.get(
-                request_data['url'],
-                params=request_data['params'],
-                timeout=self.timeout
-            )
+            # Use a PreparedRequest to avoid percent-encoding polyline chars
+            from requests import Request as _Req
+            from urllib.parse import urlencode
+            raw_url = request_data['url']
+            if request_data['params']:
+                raw_url += '?' + urlencode(request_data['params'])
+            req = _Req('GET', raw_url)
+            prepared = req.prepare()
+            prepared.url = raw_url  # override to prevent re-encoding
+            response = self.session.send(prepared, timeout=self.timeout)
             response.raise_for_status()
             result = response.json()
             
