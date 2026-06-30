@@ -1,6 +1,9 @@
 """HTTP client adapter for OSRM that provides the same interface as native bindings."""
 
+import logging
 from typing import Any, Dict, List, Optional, Union
+
+logger = logging.getLogger("osrm")
 
 
 class OSRM_HTTP:
@@ -18,20 +21,30 @@ class OSRM_HTTP:
                  "driving", "car", "bike", "foot", "walking"
         timeout: Request timeout in seconds (default: 30)
         session: Optional requests.Session object for connection pooling
-    
+        report_metadata: When True (default), the first routing request logs a
+                 one-time summary of the server's /metadata (OSM data and profile
+                 processing timestamps) at INFO level on the "osrm" logger. Set
+                 False to disable. Note: enable INFO logging to see it, e.g.
+                 logging.basicConfig(level=logging.INFO).
+
     Examples:
-        >>> import osrm
-        >>> 
+        >>> import logging, osrm
+        >>> logging.basicConfig(level=logging.INFO)  # required to see metadata report
+        >>>
         >>> # Connect to local OSRM server
         >>> client = osrm.OSRM_HTTP("http://localhost:5000")
-        >>> 
+        >>>
         >>> # Or use the public demo instance
         >>> client = osrm.OSRM_HTTP("http://router.project-osrm.org")
-        >>> 
-        >>> # Same API as native OSRM
+        >>>
+        >>> # Inspect the server's data vintage on demand
+        >>> client.Metadata()
+        {'generated_at': '2026-05-18T22:07:35Z', 'profiles': {...}}
+        >>>
+        >>> # Same API as native OSRM; first request also logs the metadata once
         >>> result = client.Route([(7.41337, 43.72956), (7.41546, 43.73077)])
         >>> print(result["routes"][0]["distance"])
-        >>> 
+        >>>
         >>> # Works with bulk processing
         >>> import polars as pl
         >>> df = pl.DataFrame({
@@ -49,16 +62,22 @@ class OSRM_HTTP:
         profile: str = "driving",
         timeout: float = 30.0,
         session: Optional[Any] = None,
+        report_metadata: bool = True,
         pool_connections: int = 16,
         pool_maxsize: int = 16,
     ):
         import requests
         from requests.adapters import HTTPAdapter
         self._requests = requests
-        
+
         self.base_url = base_url.rstrip('/')
         self.profile = profile
         self.timeout = timeout
+
+        # Metadata reporting state
+        self.report_metadata = report_metadata
+        self._metadata_cache: Optional[Dict[str, Any]] = None
+        self._metadata_reported = False
 
         if session is not None:
             self.session = session
@@ -133,8 +152,61 @@ class OSRM_HTTP:
         
         return {'url': url, 'params': query_params}
     
+    def Metadata(self, refresh: bool = False) -> Dict[str, Any]:
+        """Fetch server metadata (OSM data + profile processing timestamps).
+
+        Hits the server's custom ``/metadata`` endpoint, which reports when the
+        underlying OSM data was sourced and when each routing profile was
+        processed. The result is cached on the client; pass ``refresh=True`` to
+        force a re-fetch.
+
+        Returns:
+            Metadata dict, e.g.
+            ``{"generated_at": ..., "profiles": {"car": {...}, ...}}``.
+
+        Raises:
+            RuntimeError: If the ``/metadata`` endpoint is unreachable or returns
+                an error (e.g. the server does not implement it).
+        """
+        if self._metadata_cache is not None and not refresh:
+            return self._metadata_cache
+        try:
+            response = self.session.get(f"{self.base_url}/metadata", timeout=self.timeout)
+            response.raise_for_status()
+            self._metadata_cache = response.json()
+        except self._requests.exceptions.RequestException as e:
+            raise RuntimeError(
+                f"Failed to fetch metadata from {self.base_url}/metadata: {e}"
+            )
+        return self._metadata_cache
+
+    @staticmethod
+    def _format_metadata(meta: Dict[str, Any]) -> str:
+        """Render metadata as a single human-readable log line."""
+        generated = meta.get("generated_at", "unknown")
+        parts = []
+        for name, info in (meta.get("profiles") or {}).items():
+            parts.append(
+                f"{name}: osm_data={info.get('osm_data_timestamp', '?')}, "
+                f"processed={info.get('processed_at', '?')}"
+            )
+        profiles = "; ".join(parts) if parts else "no profile info"
+        return f"OSRM server metadata (generated {generated}): {profiles}"
+
+    def _report_metadata_once(self) -> None:
+        """Log the server metadata a single time per client (if enabled)."""
+        if not self.report_metadata or self._metadata_reported:
+            return
+        self._metadata_reported = True  # set first: don't retry on failure / spam
+        try:
+            meta = self.Metadata()
+        except RuntimeError:
+            return  # metadata endpoint missing/unreachable must not break routing
+        logger.info(self._format_metadata(meta))
+
     def _make_request(self, service: str, coordinates: List[tuple], **kwargs) -> Dict[str, Any]:
         """Make HTTP request to OSRM server."""
+        self._report_metadata_once()
         request_data = self._build_request(service, coordinates, kwargs)
         
         try:
@@ -281,8 +353,9 @@ class OSRM_HTTP:
         Returns:
             Tile data as bytes
         """
+        self._report_metadata_once()
         url = f"{self.base_url}/tile/v1/{self.profile}/tile({x},{y},{z}).mvt"
-        
+
         try:
             response = self.session.get(url, timeout=self.timeout)
             response.raise_for_status()
