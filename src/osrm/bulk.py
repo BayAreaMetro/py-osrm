@@ -28,6 +28,11 @@ def _bulk_route_http(
 ) -> List[Optional[Dict]]:
     """Async HTTP routing with aiohttp and semaphore-based concurrency control."""
 
+    # This fast-path bypasses OSRM_HTTP._make_request, so trigger the one-time
+    # metadata report here. Guarded because bulk_route also accepts native OSRM.
+    if hasattr(osrm_instance, "_report_metadata_once"):
+        osrm_instance._report_metadata_once()
+
     async def _run():
         sem = asyncio.Semaphore(concurrency)
         connector = aiohttp.TCPConnector(limit=concurrency, keepalive_timeout=30)

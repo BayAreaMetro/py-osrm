@@ -16,13 +16,22 @@ on:
 jobs:
   build_wheels:
     name: Build - cp${{ matrix.python_version }}, ${{ matrix.platform }}
-    runs-on: ${{ matrix.platform }}-${{ matrix.version }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: true
       matrix:
         platform: [ubuntu, macos, windows]
-        version: [latest]
         python_version: [39, 310, 311, 312]
+        include:
+          # ubuntu/windows track latest; macOS is pinned to the macos-14 image.
+          # macos-latest now ships Xcode 26, whose clang is too strict for OSRM's
+          # old vendored fmt/boost. macos-14 (arm64) defaults to Xcode 15.x.
+          - platform: ubuntu
+            runner: ubuntu-latest
+          - platform: macos
+            runner: macos-14
+          - platform: windows
+            runner: windows-latest
     env:
       GITHUB_TOKEN: ${{ github.token }}
 

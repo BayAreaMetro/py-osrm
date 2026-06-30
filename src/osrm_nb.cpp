@@ -40,11 +40,12 @@ namespace nb = nanobind;
 // Global cleanup handler to prevent TBB thread pool from hanging on exit
 static void cleanup_osrm_tbb() {
     // OSRM uses Intel TBB which creates threads that don't cleanly shut down
-    // during normal Python exit. Using quick_exit bypasses static destructors
-    // and TBB cleanup, preventing the hang.
+    // during normal Python exit. Using _Exit bypasses static destructors
+    // and TBB cleanup, preventing the hang. (std::quick_exit is unavailable
+    // on macOS, where libc provides no ::quick_exit; std::_Exit is portable.)
     std::fflush(stdout);
     std::fflush(stderr);
-    std::quick_exit(0);
+    std::_Exit(0);
 }
 
 NB_MODULE(osrm_ext, m) {

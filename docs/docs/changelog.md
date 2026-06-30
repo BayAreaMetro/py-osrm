@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `OSRM_HTTP.Metadata()` — fetches the server's custom `/metadata` endpoint (OSM data and per-profile processing timestamps), cached on the client. The first routing request also logs a one-time metadata summary at `INFO` on the `osrm` logger; disable with `OSRM_HTTP(..., report_metadata=False)`.
+
 ## v0.1.0 — 2026-05-08
 
 Initial release as an independently maintained fork of [nick-fournier/py-osrm](https://github.com/nick-fournier/py-osrm), a continuation of the archived [nilsnolde/osrm-bindings](https://github.com/nilsnolde/osrm-bindings).
