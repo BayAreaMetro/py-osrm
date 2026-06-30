@@ -69,7 +69,8 @@ environment = { LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/lib:/usr/local/lib/
 repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel}"
 
 [tool.cibuildwheel.macos]
-environment = "MACOSX_DEPLOYMENT_TARGET=15.0"
+# macos-14 runner ships the macOS 14 SDK; deployment target must be <= 14.
+environment = "MACOSX_DEPLOYMENT_TARGET=14.0"
 before-all = """
   export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
   brew install lua@5.4 tbb boost@1.85
